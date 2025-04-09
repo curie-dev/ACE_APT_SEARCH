@@ -1,0 +1,1841 @@
+
+
+
+
+
+
+DECLARE bCRLF EXTERNAL BLOB X'0d0a';
+DECLARE cCrLf EXTERNAL CHAR CAST(bCRLF AS CHAR CCSID 1208);
+--DECLARE srHttpReplyIdentifiers SHARED ROW;
+CREATE COMPUTE MODULE APT_SearchFlow_CreateSearch
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		CALL CopyMessageHeaders();
+		--CALL CopyEntireMessage();
+		--DECLARE cSOAPAction CHAR;
+		DECLARE bTemp BLOB getSearchAPTFromAtonResponseTemplate();
+
+
+		CREATE LASTCHILD OF OutputRoot DOMAIN 'XMLNSC' parse(bTemp, OutputRoot.Properties.Encoding, OutputRoot.Properties.CodedCharSetId);
+		CREATE LASTCHILD OF Environment.Variables.OutMessage DOMAIN 'XMLNSC';
+		SET Environment.Variables.OutMessage.XMLNSC = OutputRoot.XMLNSC;
+		SET Environment.Variables.OutMessage.HTTPInputHeader = InputRoot.HTTPInputHeader;
+		SET Environment.Variables.OutMessage.HTTPInputHeader.SOAPAction = InputRoot.HTTPInputHeader.SOAPAction;
+		SET Environment.Variables.AllrequestedURLs = '';
+		SET Environment.Variables.Search.Values.OrderLineRequest = InputRoot.XMLNSC.*:Envelope.*:Body.*:SearchOrderRelatedParam.*:Order_Line_Request;
+		SET Environment.Variables.Search.Values.ElectricalPosition = UPPER(InputRoot.XMLNSC.*:Envelope.*:Body.*:SearchOrderRelatedParam.*:Electrical_Position_Request);
+		SET Environment.Variables.Search.Values.InverterSerialNumber = InputRoot.XMLNSC.*:Envelope.*:Body.*:SearchOrderRelatedParam.*:Inverter_Serial_number_Request;
+		--SET Environment.Variables.Search.Values.FileID = InputRoot.XMLNSC.*:Envelope.*:Body.*:SearchRequest.*:File_ID;
+
+		SET Environment.Variables.Search.Values.Order = InputRoot.XMLNSC.*:Envelope.*:Body.*:GetOrderLine.*:Order_Line;
+		SET Environment.Variables.Search.Values.OrderTechData = InputRoot.XMLNSC.*:Envelope.*:Body.*:GetOrderLineTechData.*:Order_Line_Code;
+		--SET Environment.Variables.Search.Values.OrderLineCode2 = InputRoot.XMLNSC.*:Envelope.*:Body.*:ImportAPTFile.*:Order_Line_Code2;
+		SET Environment.Variables.Search.Values.OrderLineCode2 = InputRoot.XMLNSC.*:Envelope.*:Body.*:ImportAPTFile.*:Import_Desc2;
+		SET Environment.Variables.Search.Values.Desc1 = InputRoot.XMLNSC.*:Envelope.*:Body.*:ImportAPTFile.*:Import_Desc1;
+		SET Environment.Variables.Search.Values.Desc2 = InputRoot.XMLNSC.*:Envelope.*:Body.*:ImportAPTFile.*:Import_Desc2;
+		SET Environment.Variables.Search.Values.Desc4 = InputRoot.XMLNSC.*:Envelope.*:Body.*:ImportAPTFile.*:Import_Desc4;
+		SET Environment.Variables.Search.Values.Desc5 = InputRoot.XMLNSC.*:Envelope.*:Body.*:ImportAPTFile.*:Import_Desc5;
+		SET Environment.Variables.Search.Values.ImportAttachment = InputRoot.XMLNSC.*:Envelope.*:Body.*:ImportAPTFile.*:Attachment;
+
+		SET Environment.Variables.Search.Values.Attachment = InputRoot.XMLNSC.*:Envelope.*:Body.*:CreateNewVersion.*:Attachment;
+		SET Environment.Variables.Search.Values.DocumentCode = InputRoot.XMLNSC.*:Envelope.*:Body.*:CreateNewVersion.*:New_Code;
+		SET Environment.Variables.Search.Values.Revision = InputRoot.XMLNSC.*:Envelope.*:Body.*:CreateNewVersion.*:Revision;
+		SET Environment.Variables.Search.Values.FileID = InputRoot.XMLNSC.*:Envelope.*:Body.*:CreateNewVersion.*:File_ID;
+		SET Environment.Variables.Search.Values.Update_Desc5 = InputRoot.XMLNSC.*:Envelope.*:Body.*:CreateNewVersion.*:Inverter_Serial_number;
+
+		SET Environment.Variables.Search.Values.File_ID = InputRoot.XMLNSC.*:Envelope.*:Body.*:FileSearch.*:File_ID;
+		SET Environment.Variables.Search.Values.File_Type = InputRoot.XMLNSC.*:Envelope.*:Body.*:FileSearch.*:File_Type;
+		SET Environment.Variables.Search.Values.File_revision = InputRoot.XMLNSC.*:Envelope.*:Body.*:FileSearch.*:File_revision;
+
+		SET Environment.Variables.Search.Values.Ask_Latest_File = InputRoot.XMLNSC.*:Envelope.*:Body.*:AskLatestFile.*:Ask_Latest_File_Code;
+		/*DECLARE rNewVersion REFERENCE TO InputRoot.XMLNSC.*:Envelope.*:Body.*:CreateNewVersion;
+		IF LASTMOVE(rNewVersion) THEN
+		DECLARE rhttpIdentifier REFERENCE TO InputRoot;
+		IF FIELDVALUE(rNewVersion.*:File_ID) > '' THEN
+		CREATE LASTCHILD OF srHttpReplyIdentifiers AS rhttpIdentifier NAME FIELDVALUE(rNewVersion.*:File_ID);
+		ELSE
+		CREATE LASTCHILD OF srHttpReplyIdentifiers AS rhttpIdentifier NAME FIELDVALUE(rNewVersion.*:New_Code);
+		END IF;
+		SET rhttpIdentifier = FIELDVALUE(InputLocalEnvironment.Destination.HTTP.RequestIdentifier);--Environment.Variables.OutMessage.HTTPInputHeader;
+		END IF;
+		*/
+		SET Environment.Variables.Search.httpRequestIdentifier = InputLocalEnvironment.Destination.HTTP.RequestIdentifier;
+		RETURN TRUE;
+	END;
+
+
+
+	CREATE FUNCTION getSearchAPTFromAtonResponseTemplate() RETURNS BLOB
+	BEGIN
+		DECLARE searchAPTResponse CHAR '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:search="http://searchaptfromaton.messagebroker..com">
+		<soapenv:Header/>
+		<soapenv:Body>
+		<search:SearchResponse>
+		<search:SearchState>success</search:SearchState>
+		<search:File_ID></search:File_ID>
+		<search:File_revision></search:File_revision>
+		<search:New_Code></search:New_Code>
+		<search:AtonErrorCode></search:AtonErrorCode>
+		<search:AtonErrorMessage></search:AtonErrorMessage>
+		<search:RequestURL></search:RequestURL>
+		<search:SearchResponseData>
+		<search:SearchResponseDocument></search:SearchResponseDocument>
+		<search:SearchResponseDocumentType></search:SearchResponseDocumentType>
+		</search:SearchResponseData>
+		</search:SearchResponse>
+		</soapenv:Body>
+		</soapenv:Envelope>';
+		RETURN CAST(searchAPTResponse AS BLOB CCSID 1208);
+		/*<search:SearchValues>
+		<search:Order_Line></search:Order_Line>
+		<search:Electrical_Position></search:Electrical_Position>
+		<search:Inverter_Serial_number></search:Inverter_Serial_number>
+		<search:File_ID></search:File_ID>
+		</search:SearchValues>
+		*/
+		END;
+
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+
+	END MODULE;
+
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_AtonConfigs
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			CALL CopyMessageHeaders();
+			--CALL CopyEntireMessage();
+
+			DECLARE cBrokerName CHAR;
+			DECLARE cSQL CHAR;
+			DECLARE rowConfig ROW;
+			DECLARE iRowCount INTEGER 0;
+			--Get Broker name
+			SET cBrokerName = BrokerName;
+			--SET cBrokerName = 'FIKCI_P2';
+			-- Get login data for Aton
+			SET cSQL = 'SELECT ATON_HOSTNAME, USERNAME, PASSWORD FROM ATON_CONFIG WHERE BROKER_NAME = ''' || cBrokerName || ''';';
+			SET rowConfig.Config[] = PASSTHRU(cSQL);
+			SET iRowCount = CARDINALITY(rowConfig.Config[]);
+
+			IF iRowCount > 0 THEN
+				SET Environment.Variables.AtonHostName = rowConfig.Config[1].ATON_HOSTNAME;
+				SET Environment.Variables.AtonUserName = rowConfig.Config[1].USERNAME;
+				SET Environment.Variables.AtonPassword = rowConfig.Config[1].PASSWORD;
+				--ELSE
+				-- SET Environment.Variables.AtonHostName = 'e2p-portalapi-dev.-com';
+				-- SET Environment.Variables.AtonUserName = 'mbroker';
+				-- SET Environment.Variables.AtonPassword = 'MB583KL';
+			END IF;
+
+			RETURN TRUE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ProcessRequest
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			--CALL CopyMessageHeaders();
+			--CALL CopyEntireMessage();
+
+			SET OutputRoot.Properties = InputRoot.Properties;
+			-------
+			--DECLARE cTerminal CHAR 'out';
+			DECLARE cOrderTechData CHAR;
+
+			SET cOrderTechData = UPPER(Environment.Variables.Search.Values.OrderTechData);
+
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+			--SET OutputRoot.HTTPInputHeader."Cookie" = rCookie;
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+			--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/common/searchobjects?infosetid.item=ordertechs&searchobject.1=item&focused_search.ordertechs.item_code==' || COALESCE(cOrderLineRequest,'');
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/common/searchobjects?infosetid.item=ordertechs_apt&searchobject.1=item&focused_search.ordertechs_apt.item_code==' || COALESCE(cOrderTechData,'') || '&casesensitivity=TRUE';
+
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf || OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage()
+		BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_Compute
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			DECLARE cLabelName CHAR;
+			--CALL CopyMessageHeaders();
+			CALL CopyEntireMessage();
+			-- Save Sesssion
+			--SET OutputLocalEnvironment = InputLocalEnvironment;
+			SET cLabelName = TRIM('"' FROM Environment.Variables.OutMessage.HTTPInputHeader.SOAPAction);
+			PROPAGATE TO LABEL cLabelName; --TRIM('"' FROM Environment.Variables.OutMessage.HTTPInputHeader.SOAPAction);
+
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE CreateAtonLoginIfNotE
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			-- CALL CopyMessageHeaders();
+			-- CALL CopyEntireMessage();
+			RETURN TRUE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+	CREATE COMPUTE MODULE APT_SearchFlow_DownloadFile
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			-- This node is used for downloading a file.
+			-- CALL CopyMessageHeaders();
+			CALL CopyEntireMessage();
+			SET OutputRoot.Properties = InputRoot.Properties;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			-- Save Sesssion
+			--DECLARE rCookie REFERENCE TO Environment.Variables.atonSession;
+			--IF LASTMOVE(rCookie) THEN
+			--IF NOT LASTMOVE(rCookie) THEN
+			-- SET Environment.Variables.atonSession = InputRoot.HTTPResponseHeader."Set-Cookie";
+			-- MOVE rCookie TO Environment.Variables.atonSession;
+			-- CALL updateAtonSessionPool(rCookie);
+			--END IF;
+			-------
+
+
+			DECLARE cFileID CHAR;
+			--DECLARE cElectricalPosition CHAR;
+			--DECLARE cInverterSerialNumber CHAR;
+			DECLARE cFileType CHAR;
+			DECLARE cFileRev CHAR;
+
+
+			SET cFileID = Environment.Variables.Search.Values.File_ID;
+			SET cFileType = Environment.Variables.Search.Values.File_Type;
+			SET cFileRev = Environment.Variables.Search.Values.File_revision;
+			--SET cInverterSerialNumber = Environment.Variables.Search.Values.InverterSerialNumber;
+			--SET cTerminal = 'out1';
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+			--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/common/searchobjects?infosetid.item=ordertechs&searchobject.1=item&focused_search.ordertechs.item_code==' || COALESCE(cOrderLineRequest,'');
+			--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://e2p-portalapi..com/portalapi/portalapi/common/searchobjects?infosetid.item=ordertechs&searchobject.1=item&focused_search.ordertechs.item_code==' || COALESCE(cOrderLineRequest,'');
+			IF cFileID <> '' THEN
+				SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/getfile?id=' || cFileID;
+			ELSE
+				-- Aton returns exeption
+
+				SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/getfile?code=' || cFileType || '&rev=' || cFileRev;
+			END IF;
+
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf || OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			PROPAGATE TO TERMINAL 'out';
+
+
+			RETURN FALSE;
+
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ImportParamFile
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			--CALL CopyMessageHeaders();
+			--CALL CopyEntireMessage();
+			-- This node uses constansts to create a document card to Aton and to get a document card id.
+			SET OutputRoot.Properties = InputRoot.Properties;
+			-- Save Sesssion
+			--DECLARE rCookie REFERENCE TO Environment.Variables.atonSession;
+			--IF LASTMOVE(rCookie) THEN
+			-- IF (NOT LASTMOVE(rCookie)) OR ( NOT FIELDVALUE(rCookie) > '') THEN
+			-- SET Environment.Variables.atonSession = InputRoot.HTTPResponseHeader."Set-Cookie";
+			-- MOVE rCookie TO Environment.Variables.atonSession;
+			-- CALL updateAtonSessionPool(rCookie);
+			-- END IF;
+			--END IF;
+			--IF cTerminal = 'out' THEN
+			--SET cTerminal = 'out1';
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			SET OutputLocalEnvironment.Variables.Attachment = InputRoot.XMLNSC.*:Envelope.*:Body.*:ImportAPTFile.*:Attachment;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+			--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/new?codearea=DOC06&group=SLEQ/EL/PA&type=XML';
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/new?codearea=DOC08&group=SLEQ/EL/PA&type=APT_PAR';
+
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf || OutputLocalEnvironment.Destination.HTTP.RequestURL;
+
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ProcessRequest2
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			--CALL CopyMessageHeaders();
+			CALL CopyEntireMessage();
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			--DECLARE cTerminal CHAR 'out';
+			DECLARE cOrderLineRequest CHAR;
+			DECLARE cElectricalPosition CHAR;
+			DECLARE cInverterSerialNumber CHAR;
+			DECLARE bRequest Boolean TRUE;
+			DECLARE bDoc Boolean TRUE;
+			DECLARE rOM REFERENCE TO Environment.Variables.OutMessage.XMLNSC;
+			DECLARE cMessage CHAR;
+			DECLARE cReturnedValue CHAR;
+
+			DECLARE rResponseData REFERENCE TO rOM.*:Envelope.*:Body.*:SearchResponse;
+
+
+
+			SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+
+			IF CONTAINS(cMessage, 'exception') THEN
+				SET rResponseData.*:SearchState = 'failure';
+				SET rResponseData.*:AtonErrorCode = COALESCE(SUBSTRING(SUBSTRING(cMessage BEFORE '</code>') AFTER '<code>'), '');
+				SET rResponseData.*:AtonErrorMessage = COALESCE(SUBSTRING(SUBSTRING(cMessage BEFORE '</message>') AFTER '<message>'), '');
+				SET rResponseData.*:RequestURL = Environment.Variables.AllrequestedURLs;
+			ELSE
+				--SET cOrderLineRequest = Environment.Variables.Search.Values.OrderLineRequest;
+				--SET cElectricalPosition = Environment.Variables.Search.Values.ElectricalPosition;
+				--SET cInverterSerialNumber = Environment.Variables.Search.Values.InverterSerialNumber;
+				-- Aton session exists and proper response was received
+				--SET rResponseData.*:SearchState = 'success';
+				SET rResponseData.*:SearchValues.*:Order_Line = cOrderLineRequest;
+				SET rResponseData.*:SearchValues.*:Electrical_Position = cElectricalPosition;
+				SET rResponseData.*:SearchValues.*:Inverter_Serial_number = cInverterSerialNumber;
+				SET cReturnedValue = base64Encode(InputRoot.BLOB.BLOB);
+				SET rResponseData.*:SearchResponseData.*:SearchResponseDocument = cReturnedValue; --base64Encode(InputRoot.BLOB.BLOB);
+				SET rResponseData.*:SearchResponseData.*:SearchResponseDocumentType = 'XML';
+			END IF;
+			-- REPLY TO HTTP Requester
+			SET OutputRoot = InputRoot;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			SET OutputRoot.BLOB = NULL;
+			SET OutputRoot.HTTPInputHeader = Environment.Variables.OutMessage.HTTPInputHeader;
+			SET OutputRoot.HTTPRequestHeader = NULL;
+			SET OutputRoot.HTTPResponseHeader = NULL;
+			SET OutputRoot.XMLNSC = rOM;
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ImportParamFile2
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			-- This noded gets document card id and makes a new query based on the id.
+			--CALL CopyMessageHeaders();
+			CALL CopyEntireMessage();
+			SET OutputRoot.Properties = InputRoot.Properties;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+
+			DECLARE cID CHAR;
+			--DECLARE rCookie REFERENCE TO Environment.Variables.atonSession;
+			--IF LASTMOVE(rCookie) THEN
+			-- IF (NOT LASTMOVE(rCookie)) OR ( NOT FIELDVALUE(rCookie) > '') THEN
+			-- SET Environment.Variables.atonSession = InputRoot.HTTPResponseHeader."Set-Cookie";
+			-- MOVE rCookie TO Environment.Variables.atonSession;
+			-- CALL updateAtonSessionPool(rCookie);
+			-- END IF;
+			--END IF;
+
+
+
+			SET cID = InputRoot.XMLNSC.success.id;
+			SET Environment.Variables.File.Import.ID = cID;
+
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+			--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/new?codearea=DOC06&group=SLEQ/EL/PA&type=XML';
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/getinfo?id=' || cID || '&infosetid=list';
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf || OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ImportParamFile3
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			-- This noded gets document card id and makes a new query based on the id.
+			--CALL CopyMessageHeaders();
+			CALL CopyEntireMessage();
+			SET OutputRoot.Properties = InputRoot.Properties;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+
+			DECLARE cDocCode CHAR;
+			DECLARE cDocId CHAR;
+			DECLARE cDocRev CHAR;
+			DECLARE cDesc1 CHAR;
+			DECLARE cDesc2 CHAR;
+			DECLARE cDesc3 CHAR;
+			DECLARE cDesc4 CHAR;
+			DECLARE cDesc5 CHAR;
+			--DECLARE rCookie REFERENCE TO Environment.Variables.atonSession;
+			--IF LASTMOVE(rCookie) THEN
+			-- IF (NOT LASTMOVE(rCookie)) OR ( NOT FIELDVALUE(rCookie) > '') THEN
+			-- SET Environment.Variables.atonSession = InputRoot.HTTPResponseHeader."Set-Cookie";
+			-- MOVE rCookie TO Environment.Variables.atonSession;
+			-- CALL updateAtonSessionPool(rCookie);
+			--END IF;
+			--END IF;
+
+
+
+			SET cDocId = InputRoot.XMLNSC.objectarray.doc.doc_id;
+			SET cDocRev = InputRoot.XMLNSC.objectarray.doc.doc_rev;
+			SET cDocCode = InputRoot.XMLNSC.objectarray.doc.doc_code;
+
+			SET Environment.Variables.Search.Values.DocId = InputRoot.XMLNSC.objectarray.doc.doc_id; --Saved for further use
+			SET Environment.Variables.Search.Values.DocRev = InputRoot.XMLNSC.objectarray.doc.doc_rev;
+			SET Environment.Variables.Search.Values.DocCode = InputRoot.XMLNSC.objectarray.doc.doc_code;
+			SET cDesc1 = Environment.Variables.Search.Values.Desc1;
+			SET cDesc2 = COALESCE(Environment.Variables.Search.Values.Desc2,'');
+			SET cDesc3 = InputRoot.XMLNSC.objectarray.doc.doc_desc3;
+			SET cDesc4 = Environment.Variables.Search.Values.Desc4;
+			SET cDesc5 = COALESCE(Environment.Variables.Search.Values.Desc5, '');
+
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+			--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/new?codearea=DOC06&group=SLEQ/EL/PA&type=XML';
+			IF cDesc2 <> '' AND cDesc5 <> '' THEN
+				SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/save?id=' || cDocId || '&desc1=' || cDesc1 || '&desc2=' || cDesc2 || '&desc3=' || cDesc3 ||'&desc4=' || cDesc4 || '&desc5=' || cDesc5 || '&seq3=108606&owner=SLEQELPL&lang=ENG';
+			ELSE
+				IF cDesc2 <> '' AND cDesc5 = '' THEN
+					SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/save?id=' || cDocId || '&desc1=' || cDesc1 || '&desc2=' || cDesc2 || '&desc3=' || cDesc3 || '&desc4=' || cDesc4 || '&seq3=108606&owner=SLEQELPL&lang=ENG';
+				ELSE
+					IF cDesc2 = '' AND cDesc5 <> '' THEN
+						SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/save?id=' || cDocId || '&desc1=' || cDesc1 || '&desc3=' || cDesc3 ||'&desc4=' || cDesc4 || '&desc5=' || cDesc5 || '&seq3=108606&owner=SLEQELPL&lang=ENG';
+
+					ELSE
+						IF cDesc2 = '' AND cDesc5 = '' THEN
+							SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/save?id=' || cDocId || '&desc1=' || cDesc1 || '&desc3=' || cDesc3 || '&desc4=' || cDesc4 || '&seq3=108606&owner=SLEQELPL&lang=ENG';
+						END IF;
+					END IF;
+				END IF;
+			END IF;
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf || OutputLocalEnvironment.Destination.HTTP.RequestURL;
+
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ImportParamFile4
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+
+			DECLARE cMessage CHAR;
+			SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+			IF CONTAINS(cMessage, 'exception') THEN
+				PROPAGATE TO TERMINAL 'out1';
+				RETURN FALSE;
+			END IF;
+
+
+			CALL CopyMessageHeaders();
+			SET OutputRoot.Properties = InputRoot.Properties;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+
+			DECLARE cID CHAR;
+			DECLARE cFileName CHAR;
+			DECLARE cAttachment CHAR;
+			DECLARE cSearchString CHAR;
+			DECLARE bAttachment BLOB;
+
+			DECLARE cIDParameter CHARACTER;
+			DECLARE cFileParameter CHARACTER;
+			DECLARE cFileTypeParameter CHARACTER;
+			DECLARE cFileNameParameter CHARACTER;
+			DECLARE cFileDirParameter CHARACTER;
+			DECLARE cOverwriteParameter CHARACTER;
+			DECLARE cBound CHARACTER;
+			DECLARE cCRLF CHARACTER;
+			DECLARE rCookie REFERENCE TO Environment.Variables.atonSession;
+
+			SET cCRLF = CAST(X'0D0A' AS CHARACTER CCSID 1208);
+			DECLARE cBoundary CHARACTER 'xYzZY';
+			DECLARE cPrefix CHARACTER ' --';
+			DECLARE cCompBoundary CHARACTER cPrefix || cBoundary || cCRLF;
+			--Set filename
+			SET cFileName = Environment.Variables.File.Import.ID; --ID which was created in the first node (for import) is used as a filename
+			SET cFileName = cFileName || '.apt';
+
+			SET cID = Environment.Variables.File.Import.ID;
+			SET cAttachment = CAST(BASE64DECODE(Environment.Variables.Search.Values.ImportAttachment) AS CHARACTER CCSID 1208); --cCAST(cAttachment AS CHARACTER CCSID 1208);
+
+			SET OutputRoot.HTTPRequestHeader = NULL;
+			SET OutputRoot.HTTPResponseHeader = NULL;
+
+
+			SET cIDParameter = cCompBoundary || 'Content-Disposition: form-data; name="id"' || cCRLF || cCRLF || cID || cCRLF || cCRLF;
+			SET cFileParameter = cCompBoundary || 'Content-Disposition: form-data; name="file.0"; filename="' || cFileName ||'"' || cCRLF || 'Content-Type: text/plain' || cCRLF || cCRLF || cAttachment || cCRLF || cCRLF;
+			SET cOverwriteParameter = cCompBoundary || 'Content-Disposition: form-data; name="overwrite"' || cCRLF || cCRLF || 'true' || cCRLF || cCRLF;
+			SET cFileTypeParameter = cCompBoundary || 'Content-Disposition: form-data; name="filetype.0"' || cCRLF || cCRLF || 'APT_PAR' || cCRLF || cCRLF;
+			SET cFileNameParameter = cCompBoundary || 'Content-Disposition: form-data; name="filename.0"' || cCRLF || cCRLF || cFileName || cCRLF || cCRLF;
+			SET cFileDirParameter = cCompBoundary || 'Content-Disposition: form-data; name="filedir.0"' || cCRLF || cCRLF || '/opt/oracle/aton/exchange/Import/APT/import/' || cCRLF;
+			SET cSearchString = cIDParameter || cFileParameter || cOverwriteParameter || cFileTypeParameter || cFileNameParameter || cFileDirParameter || cPrefix || cBoundary || cPrefix;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPResponseHeader = NULL;
+			SET OutputRoot.HTTPRequestHeader."Cookie" = rCookie;
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.HTTPVersion = 'HTTP/1.1';
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'POST';
+			SET OutputRoot.HTTPRequestHeader.POST = '/portalapi/portalapi/document/import';
+			SET OutputRoot.HTTPRequestHeader.Host = Environment.Variables.AtonHostName;
+			SET OutputRoot.HTTPRequestHeader."Content-Type" = 'multipart/form-data; boundary=' || cBoundary;
+			SET OutputRoot.HTTPRequestHeader."Accept" = 'text/plain';
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/import?';
+			SET OutputRoot.BLOB.BLOB = CAST(cSearchString AS BLOB CCSID 1208);
+			PROPAGATE TO TERMINAL 'out';
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf || OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ImportParamFile5
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			-- CALL CopyMessageHeaders();
+			-- This noded creates a relationship after importing APT file
+
+			CALL CopyEntireMessage();
+			SET OutputRoot.Properties = InputRoot.Properties;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+
+			DECLARE rOM REFERENCE TO Environment.Variables.OutMessage.XMLNSC;
+			DECLARE rResponseData REFERENCE TO rOM.*:Envelope.*:Body.*:SearchResponse;
+			DECLARE cMessage CHAR;
+			DECLARE cIdTo CHAR;
+			DECLARE cCodeFrom CHAR; --original Order line code
+			--DECLARE rCookie REFERENCE TO Environment.Variables.atonSession;
+			--IF LASTMOVE(rCookie) THEN
+			-- IF (NOT LASTMOVE(rCookie)) OR ( NOT FIELDVALUE(rCookie) > '') THEN
+			-- SET Environment.Variables.atonSession = InputRoot.HTTPResponseHeader."Set-Cookie";
+			-- MOVE rCookie TO Environment.Variables.atonSession;
+			-- CALL updateAtonSessionPool(rCookie);
+			-- END IF;
+			--END IF;
+
+			SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+			IF CONTAINS(cMessage, 'exception') THEN
+				SET rResponseData.*:SearchState = 'failure';
+				SET rResponseData.*:AtonErrorCode = InputRoot.XMLNSC.exception.code;
+				SET rResponseData.*:RequestURL = Environment.Variables.AllrequestedURLs;
+				-- REPLY TO HTTP Requester
+				SET OutputRoot = InputRoot;
+				SET OutputLocalEnvironment = InputLocalEnvironment;
+				SET OutputRoot.BLOB = NULL;
+				SET OutputRoot.HTTPInputHeader = Environment.Variables.OutMessage.HTTPInputHeader;
+				SET OutputRoot.HTTPRequestHeader = NULL;
+				SET OutputRoot.HTTPResponseHeader = NULL;
+				SET OutputRoot.XMLNSC = rOM;
+
+
+				PROPAGATE TO TERMINAL 'out1';
+			END IF;
+
+			SET cIdTo = Environment.Variables.File.Import.ID;
+			SET cCodeFrom = Environment.Variables.Search.Values.OrderLineCode2;
+
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/common/CreateRelationship?typefrom=ITEM&codefrom=' || cCodeFrom || '&revfrom=0&typeto=DOC&idto=' || cIdTo;
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			PROPAGATE TO TERMINAL 'out';
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ImportParamFile6
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			CALL CopyEntireMessage();
+			SET OutputRoot.Properties = InputRoot.Properties;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+
+			DECLARE cId CHAR;
+
+			SET cId = Environment.Variables.File.Import.ID;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/changestatus?id=' || cId || '&status=ACCEPT_PRODUCTION';
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE FUNCTION InsertLeadingChars(MaxLen INTEGER, LeadChar CHARACTER, Field_IN CHARACTER) RETURNS CHARACTER
+	BEGIN
+		DECLARE Field_OUT CHARACTER;
+
+		IF Field_IN IS NULL THEN
+			SET Field_IN = '';
+		END IF;
+
+		SET Field_OUT = TRIM(BOTH ' ' FROM Field_IN);
+		WHILE LENGTH(Field_OUT) < MaxLen DO
+			SET Field_OUT = LeadChar || Field_OUT;
+		END WHILE;
+		RETURN Field_OUT;
+	END;
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ReleaseVersion
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+
+			DECLARE cMessage CHAR;
+			SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+			IF CONTAINS(cMessage, 'exception') THEN
+				CALL CopyEntireMessage();
+				PROPAGATE TO TERMINAL 'out1';
+				RETURN FALSE;
+			ELSE
+				IF InputRoot.XMLNSC.exception.message IS NOT NULL THEN
+					CALL CopyEntireMessage();
+					PROPAGATE TO TERMINAL 'out1';
+					RETURN FALSE;
+				END IF;
+			END IF;
+
+			SET OutputRoot.Properties = InputRoot.Properties;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+
+
+			DECLARE cID CHAR;
+			DECLARE cFileName CHAR '';
+			DECLARE cAttachment CHAR;
+			DECLARE rCookie REFERENCE TO Environment.Variables.atonSession;
+			DECLARE cSearchString CHAR;
+			DECLARE bAttachment BLOB;
+
+			DECLARE cIDParameter CHARACTER;
+			DECLARE cFileParameter CHARACTER;
+			DECLARE cFileTypeParameter CHARACTER;
+			DECLARE cFileNameParameter CHARACTER;
+			DECLARE cFileDirParameter CHARACTER;
+			DECLARE cAutorevParameter CHARACTER;
+			DECLARE cPrevstatusParameter CHARACTER;
+			DECLARE cStatusParameter CHARACTER;
+			DECLARE cCRLF CHARACTER CAST(X'0D0A' AS CHARACTER CCSID 1208);
+			--Set filename which was created in the first node (for import) is used as a filename
+			--IF Environment.Variables.Search.Values.FileID > '' THEN
+			SET cFileName = Environment.Variables.Search.Values.FileID; --ID
+			--ELSEIF FIELDVALUE(InputRoot.XMLNSC.objectarray.doc.doc_id) > '' THEN
+			-- SET cFileName = FIELDVALUE(InputRoot.XMLNSC.objectarray.doc.doc_id);
+			-- SET Environment.Variables.Search.Values.FileID = cFileName;
+			--END IF;
+			SET cFileName = cFileName || '.apt';
+
+			SET cID = Environment.Variables.Search.Values.FileID;
+			SET cAttachment = CAST(BASE64DECODE(Environment.Variables.Search.Values.Attachment) AS CHARACTER CCSID 1208); --cCAST(cAttachment AS CHARACTER CCSID 1208);
+
+			SET OutputRoot.HTTPRequestHeader = NULL;
+			SET OutputRoot.HTTPResponseHeader = NULL;
+
+			DECLARE cBoundary CHARACTER 'xYzZY';
+			DECLARE cPrefix CHARACTER ' --';
+			DECLARE cCompBoundary CHARACTER cPrefix || cBoundary || cCRLF;
+
+			SET cIDParameter = cCompBoundary || 'Content-Disposition: form-data; name="id"' || cCRLF || cCRLF || cID || cCRLF || cCRLF;
+			SET cFileParameter = cCompBoundary || 'Content-Disposition: form-data; name="file.0"; filename="' || cFileName ||'"' || cCRLF || 'Content-Type: text/plain' || cCRLF || cCRLF || cAttachment || cCRLF || cCRLF;
+			SET cAutorevParameter = cCompBoundary || 'Content-Disposition: form-data; name="autorev"' || cCRLF || cCRLF || 'Y' || cCRLF || cCRLF;
+			SET cPrevstatusParameter = cCompBoundary || 'Content-Disposition: form-data; name="prevstatus"' || cCRLF || cCRLF || 'OLDVERSION_DOC' || cCRLF || cCRLF;
+			SET cStatusParameter = cCompBoundary || 'Content-Disposition: form-data; name="status"' || cCRLF || cCRLF || 'ACCEPT_INDIVIDUAL' || cCRLF || cCRLF;
+			SET cFileTypeParameter = cCompBoundary || 'Content-Disposition: form-data; name="filetype.0"' || cCRLF || cCRLF || 'APT_PAR' || cCRLF || cCRLF;
+			SET cFileNameParameter = cCompBoundary || 'Content-Disposition: form-data; name="filename.0"' || cCRLF || cCRLF || cFileName || cCRLF || cCRLF;
+			SET cFileDirParameter = cCompBoundary || 'Content-Disposition: form-data; name="filedir.0"' || cCRLF || cCRLF || '/opt/oracle/aton/exchange/Import/APT/import/' || cCRLF;
+			SET cSearchString = cIDParameter || cFileParameter || cAutorevParameter || cPrevstatusParameter || cStatusParameter || cFileTypeParameter || cFileNameParameter || cFileDirParameter || cPrefix || cBoundary || cPrefix;
+			/*
+			SET cIDParameter = cCompBoundary || 'Content-Disposition: form-data; name="id"' || cCRLF || cCRLF || cID || cCRLF || cCRLF;
+			SET cFileParameter = cCompBoundary || 'Content-Disposition: form-data; name="file.0"; filename="' || cFileName ||'"' || cCRLF || 'Content-Type: text/plain' || cCRLF || cCRLF || cAttachment || cCRLF || cCRLF;
+			SET cOverwriteParameter = cCompBoundary || 'Content-Disposition: form-data; name="overwrite"' || cCRLF || cCRLF || 'true' || cCRLF || cCRLF;
+			SET cFileTypeParameter = cCompBoundary || 'Content-Disposition: form-data; name="filetype.0"' || cCRLF || cCRLF || 'APT_PAR' || cCRLF || cCRLF;
+			SET cFileNameParameter = cCompBoundary || 'Content-Disposition: form-data; name="filename.0"' || cCRLF || cCRLF || cFileName || cCRLF || cCRLF;
+			SET cFileDirParameter = cCompBoundary || 'Content-Disposition: form-data; name="filedir.0"' || cCRLF || cCRLF || '/opt/oracle/aton/exchange/Import/APT/import/' || cCRLF;
+			SET cSearchString = cIDParameter || cFileParameter || cOverwriteParameter || cFileTypeParameter || cFileNameParameter || cFileDirParameter || cPrefix || cBoundary || cPrefix;
+			*/
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPResponseHeader = NULL;
+			SET OutputRoot.HTTPRequestHeader."Cookie" = rCookie;
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.HTTPVersion = 'HTTP/1.1';
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'POST';
+			SET OutputRoot.HTTPRequestHeader.POST = '/portalapi/portalapi/document/relnewver';
+			SET OutputRoot.HTTPRequestHeader.Host = Environment.Variables.AtonHostName;
+			SET OutputRoot.HTTPRequestHeader."Content-Type" = 'multipart/form-data; boundary=' || cBoundary;
+			SET OutputRoot.HTTPRequestHeader."Accept" = 'text/plain';
+			--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/import?';-- || cSearchString;--?' || cSearchString;
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/relnewver?';
+			SET OutputRoot.BLOB.BLOB = CAST(cSearchString AS BLOB CCSID 1208 ENCODING OutputRoot.Properties.CodedCharSetId);
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf ||OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			RETURN TRUE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ProcessDownload
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			--This node is used to process reply to requester
+			--CALL CopyMessageHeaders();
+			CALL CopyEntireMessage();
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			DECLARE rOM REFERENCE TO Environment.Variables.OutMessage.XMLNSC;
+			DECLARE rResponseData REFERENCE TO rOM.*:Envelope.*:Body.*:SearchResponse;
+			DECLARE cMessage CHAR;
+			DECLARE cReturnedValue CHAR;
+
+			SET cMessage = base64Encode(InputRoot.BLOB.BLOB);
+
+			IF CONTAINS(cMessage, 'exception') THEN
+				SET rResponseData.*:SearchState = 'failure';
+				SET rResponseData.*:AtonErrorCode = COALESCE(SUBSTRING(SUBSTRING(cMessage BEFORE '</code>') AFTER '<code>'), '');
+				SET rResponseData.*:AtonErrorMessage = COALESCE(SUBSTRING(SUBSTRING(cMessage BEFORE '</message>') AFTER '<message>'), '');
+				SET rResponseData.*:RequestURL = Environment.Variables.AllrequestedURLs;
+			ELSE
+
+				SET cReturnedValue = base64Encode(InputRoot.BLOB.BLOB);
+				SET rResponseData.*:SearchResponseData.*:SearchResponseDocument = cReturnedValue; --base64Encode(InputRoot.BLOB.BLOB);
+				SET rResponseData.*:SearchResponseData.*:SearchResponseDocumentType = 'mdb';
+
+			END IF;
+			-- REPLY TO HTTP Requester
+			SET OutputRoot = InputRoot;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			SET OutputRoot.BLOB = NULL;
+			SET OutputRoot.HTTPInputHeader = Environment.Variables.OutMessage.HTTPInputHeader;
+			SET OutputRoot.HTTPRequestHeader = NULL;
+			SET OutputRoot.HTTPResponseHeader = NULL;
+			SET OutputRoot.XMLNSC = rOM;
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_AskFile
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			--CALL CopyMessageHeaders();
+			--CALL CopyEntireMessage();
+
+			SET OutputRoot.Properties = InputRoot.Properties;
+			-------
+			--DECLARE cTerminal CHAR 'out';
+			DECLARE cAskFileCode CHAR;
+
+			SET cAskFileCode = Environment.Variables.Search.Values.Ask_Latest_File;
+
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+			--SET OutputRoot.HTTPInputHeader."Cookie" = rCookie;
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+			--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/common/searchobjects?infosetid.item=ordertechs&searchobject.1=item&focused_search.ordertechs.item_code==' || COALESCE(cOrderLineRequest,'');
+
+			IF cAskFileCode = 'DeviceDescription' THEN
+				SET cAskFileCode = '107963';
+			ELSE
+				IF cAskFileCode = 'CalculationScript' THEN
+					SET cAskFileCode = '109182';
+				ELSE
+					IF cAskFileCode = 'Database' THEN
+						SET cAskFileCode = '109181';
+					ELSE
+						SET cAskFileCode = cAskFileCode;
+					END IF;
+				END IF;
+			END IF;
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/getinfo?code=' || cAskFileCode || '&infosetid=full';
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf ||Environment.Variables.requestedURL;
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ProcessAskLatestFile
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			--CALL CopyMessageHeaders();
+			--CALL CopyEntireMessage();
+			--SET OutputLocalEnvironment = InputLocalEnvironment;
+
+
+			DECLARE rOM REFERENCE TO Environment.Variables.OutMessage.XMLNSC;
+			DECLARE cMessage CHAR;
+			DECLARE cReturnedValue CHAR;
+
+			DECLARE rResponseData REFERENCE TO rOM.*:Envelope.*:Body.*:SearchResponse;
+
+
+			SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+
+			IF CONTAINS(cMessage, 'exception') THEN
+				SET rResponseData.*:SearchState = 'failure';
+				SET rResponseData.*:AtonErrorCode = COALESCE(SUBSTRING(SUBSTRING(cMessage BEFORE '</code>') AFTER '<code>'), '');
+				SET rResponseData.*:AtonErrorMessage = COALESCE(SUBSTRING(SUBSTRING(cMessage BEFORE '</originalmessage>') AFTER '<originalmessage>'), '');
+				SET rResponseData.*:RequestURL = Environment.Variables.AllrequestedURLs;
+			ELSE
+				-- Aton session exists and proper response was received
+
+				SET cReturnedValue = base64Encode(InputRoot.BLOB.BLOB);
+				SET rResponseData.*:SearchResponseData.*:SearchResponseDocument = cReturnedValue; --base64Encode(InputRoot.BLOB.BLOB);
+				SET rResponseData.*:SearchResponseData.*:SearchResponseDocumentType = 'XML';
+			END IF;
+			-- REPLY TO HTTP Requester
+			SET OutputRoot.Properties = InputRoot.Properties;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			--SET OutputRoot.BLOB = NULL;
+			--SET OutputRoot.HTTPInputHeader = Environment.Variables.OutMessage.HTTPInputHeader;
+			--SET OutputRoot.HTTPRequestHeader = NULL;
+			--SET OutputRoot.HTTPResponseHeader = NULL;
+			SET OutputRoot.XMLNSC = rOM;
+
+
+
+			PROPAGATE TO TERMINAL 'out';
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ProcessGetOrderLine
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			--This node is used for searching order lines.
+			--CALL CopyMessageHeaders();
+			--CALL CopyEntireMessage();
+
+			SET OutputRoot.Properties = InputRoot.Properties;
+			-- Save Sesssion
+			--DECLARE rCookie REFERENCE TO Environment.Variables.atonSession;
+			--IF LASTMOVE(rCookie) THEN
+			--SET Environment.Variables.atonSession = InputRoot.HTTPResponseHeader."Set-Cookie";
+			--MOVE rCookie TO Environment.Variables.atonSession;
+			--CALL updateAtonSessionPool(rCookie);
+
+
+			DECLARE cOrderLine CHAR;
+
+			DECLARE bRequest Boolean TRUE;
+			DECLARE bDoc Boolean TRUE;
+			--DECLARE rOM REFERENCE TO Environment.Variables.OutMessage.XMLNSC;
+			--DECLARE cMessage CHAR;
+			--DECLARE cReturnedValue CHAR;
+			--DECLARE rResponseData REFERENCE TO rOM.*:Envelope.*:Body.*:SearchResponse;
+			--SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+			SET cOrderLine = UPPER(Environment.Variables.Search.Values.Order);
+
+
+
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+			--SET OutputRoot.HTTPInputHeader."Cookie" = rCookie;
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+			--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/common/searchobjects?infosetid.item=ordertechs&searchobject.1=item&focused_search.ordertechs.item_code==' || COALESCE(cOrderLineRequest,'');
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/item/getstructure?code=' || cOrderLine || '&infosetid=list';
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf ||OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_ProcessLines
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			--CALL CopyMessageHeaders();
+			CALL CopyEntireMessage();
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			--DECLARE cTerminal CHAR 'out';
+
+			DECLARE rOM REFERENCE TO Environment.Variables.OutMessage.XMLNSC;
+			DECLARE cMessage CHAR;
+			DECLARE cReturnedValue CHAR;
+
+			DECLARE rResponseData REFERENCE TO rOM.*:Envelope.*:Body.*:SearchResponse;
+
+
+
+			SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+			-- Aton session exists and proper response was received
+			--SET rResponseData.*:SearchState = 'success';
+
+			SET cReturnedValue = base64Encode(InputRoot.BLOB.BLOB);
+			SET rResponseData.*:SearchResponseData.*:SearchResponseDocument = cReturnedValue; --base64Encode(InputRoot.BLOB.BLOB);
+			SET rResponseData.*:SearchResponseData.*:SearchResponseDocumentType = 'XML';
+			-- REPLY TO HTTP Requester
+			SET OutputRoot = InputRoot;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			SET OutputRoot.BLOB = NULL;
+			SET OutputRoot.HTTPInputHeader = Environment.Variables.OutMessage.HTTPInputHeader;
+			SET OutputRoot.HTTPRequestHeader = NULL;
+			SET OutputRoot.HTTPResponseHeader = NULL;
+			SET OutputRoot.XMLNSC = rOM;
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_SearchOrderRelated
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			--CALL CopyMessageHeaders();
+			--CALL CopyEntireMessage();
+
+			SET OutputRoot.Properties = InputRoot.Properties;
+			-- Save Sesssion
+			--DECLARE rCookie REFERENCE TO Environment.Variables.atonSession;
+			--IF LASTMOVE(rCookie) THEN
+			--IF (NOT LASTMOVE(rCookie)) OR ( NOT FIELDVALUE(rCookie) > '') THEN
+			--SET Environment.Variables.atonSession = InputRoot.HTTPResponseHeader."Set-Cookie";
+			--MOVE rCookie TO Environment.Variables.atonSession;
+			--CALL updateAtonSessionPool(rCookie);
+			--END IF;
+			-------
+			--DECLARE cTerminal CHAR 'out';
+			DECLARE cOrderLineRequest CHAR;
+			DECLARE cElectricalPosition CHAR;
+			DECLARE cInverterSerialNumber CHAR;
+			DECLARE bRequest Boolean TRUE;
+			DECLARE bDoc Boolean TRUE;
+			--DECLARE rOM REFERENCE TO Environment.Variables.OutMessage.XMLNSC;
+			--DECLARE cMessage CHAR;
+			--DECLARE cReturnedValue CHAR;
+			--DECLARE rResponseData REFERENCE TO rOM.*:Envelope.*:Body.*:SearchResponse;
+			--SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+			SET cOrderLineRequest = UCASE(COALESCE(Environment.Variables.Search.Values.OrderLineRequest,''));
+			SET cElectricalPosition = UCASE(COALESCE(Environment.Variables.Search.Values.ElectricalPosition,''));
+			SET cInverterSerialNumber = UCASE(COALESCE(Environment.Variables.Search.Values.InverterSerialNumber,''));
+
+
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+			--SET OutputRoot.HTTPInputHeader."Cookie" = rCookie;
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+			--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/common/searchobjects?infosetid.item=ordertechs&searchobject.1=item&focused_search.ordertechs.item_code==' || COALESCE(cOrderLineRequest,'');
+			IF cOrderLineRequest <> '' AND cElectricalPosition = '' THEN
+				SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/common/searchobjects?infosetid.doc=apt&searchobject.1=doc&focused_search.docmain_apt.doc_seq3.AND==108606&focused_search.docmain_apt.doc_desc2.AND=' || cOrderLineRequest || '&casesensitivity=TRUE';
+			ELSE
+				IF cOrderLineRequest <> '' AND cElectricalPosition <> '' THEN
+					--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://e2p-portalapi..com/portalapi/portalapi/common/searchobjects?infosetid.doc=apt&searchobject.1=doc&focused_search.docmain_apt.doc_seq3.AND==108606&focused_search.docmain_apt.doc_desc2.AND==' || cOrderLineRequest || '& focused_search.docmain_apt.doc_desc4.AND==' || cElectricalPosition;
+					SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/common/searchobjects?infosetid.doc=apt&searchobject.1=doc&focused_search.docmain_apt.doc_seq3.AND==108606&focused_search.docmain_apt.doc_desc4.AND==' || cElectricalPosition || '&focused_search.docmain_apt.doc_desc2.AND=' || cOrderLineRequest || '&casesensitivity=TRUE';
+				ELSE
+					IF cOrderLineRequest = '' AND cElectricalPosition = '' AND cInverterSerialNumber <> '' THEN
+						SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/common/searchobjects?infosetid.doc=apt&searchobject.1=doc&focused_search.docmain_apt.doc_seq3.AND==108606&focused_search.docmain_apt.doc_desc5.AND==' || cInverterSerialNumber || '&casesensitivity=TRUE';
+					END IF;
+				END IF;
+			END IF;
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf ||OutputLocalEnvironment.Destination.HTTP.RequestURL;
+
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_CreateReply
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			CALL CopyMessageHeaders();
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+
+			DECLARE rOM REFERENCE TO Environment.Variables.OutMessage.XMLNSC;
+			DECLARE rResponseData REFERENCE TO rOM.*:Envelope.*:Body.*:SearchResponse;
+			DECLARE cMessage CHAR;
+
+			SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+			IF CONTAINS(cMessage, 'exception') THEN
+				SET rResponseData.*:SearchState = 'failure';
+				SET rResponseData.*:AtonErrorCode = COALESCE(SUBSTRING(SUBSTRING(cMessage BEFORE '</code>') AFTER '<code>'), '');
+				SET rResponseData.*:AtonErrorMessage = COALESCE(SUBSTRING(SUBSTRING(cMessage BEFORE '</originalmessage>') AFTER '<originalmessage>'), '');
+				SET rResponseData.*:RequestURL = Environment.Variables.AllrequestedURLs;
+			ELSE
+				SET rResponseData.*:SearchState = 'success';
+				SET rResponseData.*:File_ID = Environment.Variables.Search.Values.DocId;
+				SET rResponseData.*:File_revision = Environment.Variables.Search.Values.DocRev;
+				SET rResponseData.*:New_Code = Environment.Variables.Search.Values.DocCode;
+			END IF;
+			-- REPLY TO HTTP Requester
+			SET OutputRoot.HTTPRequestHeader = NULL;
+			SET OutputRoot.HTTPResponseHeader = NULL;
+			SET OutputRoot.HTTPInputHeader = Environment.Variables.OutMessage.HTTPInputHeader;
+			SET OutputRoot.XMLNSC = rOM;
+
+			RETURN TRUE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_CreateReply2
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			SET OutputRoot.Properties = InputRoot.Properties;
+			DECLARE cMessage CHAR;
+
+			DECLARE bTemp BLOB getSearchAPTFromAtonResponseTemplate();
+			CREATE LASTCHILD OF OutputRoot DOMAIN 'XMLNSC' parse(bTemp, OutputRoot.Properties.Encoding, OutputRoot.Properties.CodedCharSetId);
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestIdentifier = Environment.Variables.Search.httpRequestIdentifier;
+
+			DECLARE rResponseData REFERENCE TO OutputRoot.XMLNSC.*:Envelope.*:Body.*:SearchResponse;
+			SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+			IF CONTAINS(cMessage, 'exception') THEN
+				SET rResponseData.*:SearchState = 'failure';
+				SET rResponseData.*:AtonErrorCode = COALESCE(SUBSTRING(SUBSTRING(cMessage BEFORE '</code>') AFTER '<code>'), '');
+				SET rResponseData.*:AtonErrorMessage = COALESCE(SUBSTRING(SUBSTRING(cMessage BEFORE '</originalmessage>') AFTER '<originalmessage>'), '');
+				SET rResponseData.*:RequestURL = Environment.Variables.AllrequestedURLs;
+			ELSE
+				IF InputRoot.XMLNSC.exception.message IS NOT NULL THEN
+					SET rResponseData.*:SearchState = 'failure';
+					SET rResponseData.*:AtonErrorCode = FIELDVALUE(InputRoot.XMLNSC.exception.code);
+					SET rResponseData.*:AtonErrorMessage = FIELDVALUE(InputRoot.XMLNSC.exception.originalmessage);
+					SET rResponseData.*:RequestURL = Environment.Variables.AllrequestedURLs;
+				ELSE
+					SET rResponseData.*:SearchState = 'success';
+					SET rResponseData.*:File_ID = FIELDVALUE(Environment.Variables.Search.Values.FileID);
+					SET rResponseData.*:File_revision = FIELDVALUE(InputRoot.XMLNSC.objectarray.doc.doc_rev);
+					SET rResponseData.*:New_Code = FIELDVALUE(Environment.Variables.Search.Values.DocumentCode);
+				END IF;
+			END IF;
+			SET OutputRoot.HTTPRequestHeader = NULL;
+			SET OutputRoot.HTTPResponseHeader = NULL;
+
+			RETURN TRUE;
+		END;
+
+		CREATE FUNCTION getSearchAPTFromAtonResponseTemplate() RETURNS BLOB
+		BEGIN
+			DECLARE searchAPTResponse CHAR '
+			<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:search="http://searchaptfromaton.messagebroker..com">
+			<soapenv:Header/>
+			<soapenv:Body>
+			<search:SearchResponse>
+			<search:SearchState>success</search:SearchState>
+			<search:File_ID></search:File_ID>
+			<search:File_revision></search:File_revision>
+			<search:New_Code></search:New_Code>
+			<search:AtonErrorCode></search:AtonErrorCode>
+			<search:AtonErrorMessage></search:AtonErrorMessage>
+			<search:RequestURL></search:RequestURL>
+			<search:SearchResponseData>
+			<search:SearchResponseDocument></search:SearchResponseDocument>
+			<search:SearchResponseDocumentType></search:SearchResponseDocumentType>
+			</search:SearchResponseData>
+			</search:SearchResponse>
+			</soapenv:Body>
+			</soapenv:Envelope>';
+
+
+			RETURN CAST(searchAPTResponse AS BLOB CCSID 1208);
+			/*<search:SearchValues>
+			<search:Order_Line></search:Order_Line>
+			<search:Electrical_Position></search:Electrical_Position>
+			<search:Inverter_Serial_number></search:Inverter_Serial_number>
+			<search:File_ID></search:File_ID>
+			</search:SearchValues>
+			*/
+			END;
+
+			CREATE PROCEDURE CopyMessageHeaders() BEGIN
+				DECLARE I INTEGER 1;
+				DECLARE J INTEGER;
+				SET J = CARDINALITY(InputRoot.*[]);
+				WHILE I < J DO
+					SET OutputRoot.*[I] = InputRoot.*[I];
+					SET I = I + 1;
+				END WHILE;
+			END;
+
+			CREATE PROCEDURE CopyEntireMessage() BEGIN
+				SET OutputRoot = InputRoot;
+			END;
+		END MODULE;
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_GetNewDocCode
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		CALL CopyEntireMessage();
+			SET OutputRoot.Properties = InputRoot.Properties;
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+
+			DECLARE iRevision INTEGER;
+			DECLARE cRevision CHAR;
+			DECLARE cMessage CHAR;
+			SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+			IF CONTAINS(cMessage, 'exception') THEN
+				CALL CopyEntireMessage();
+				PROPAGATE TO TERMINAL 'out1';
+				RETURN FALSE;
+			ELSE
+				IF InputRoot.XMLNSC.exception.message IS NOT NULL THEN
+					CALL CopyEntireMessage();
+					PROPAGATE TO TERMINAL 'out1';
+					RETURN FALSE;
+				END IF;
+			END IF;
+			SET iRevision = CAST(Environment.Variables.Search.Values.Revision AS INTEGER);
+			SET cRevision = CAST(iRevision+1 AS CHAR);
+			
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/getinfo?infosetid=list&code=' || Environment.Variables.Search.Values.DocumentCode || '&rev=' || cRevision;
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf ||OutputLocalEnvironment.Destination.HTTP.RequestURL;
+
+			PROPAGATE TO TERMINAL 'out';
+
+			RETURN FALSE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;
+
+
+		CREATE COMPUTE MODULE APT_SearchFlow_GetDocCode
+			CREATE FUNCTION Main() RETURNS BOOLEAN
+			BEGIN
+				-- This noded gets document card id and makes a new query based on the id.
+				--CALL CopyMessageHeaders();
+				CALL CopyEntireMessage();
+				SET OutputRoot.Properties = InputRoot.Properties;
+				SET OutputLocalEnvironment = InputLocalEnvironment;
+
+				DECLARE cID CHAR;
+				-- DECLARE rCookie REFERENCE TO Environment.Variables.atonSession;
+				-- IF LASTMOVE(rCookie) THEN
+				-- IF (NOT LASTMOVE(rCookie)) OR ( NOT FIELDVALUE(rCookie) > '') THEN
+				-- SET Environment.Variables.atonSession = InputRoot.HTTPResponseHeader."Set-Cookie";
+				-- MOVE rCookie TO Environment.Variables.atonSession;
+				-- CALL updateAtonSessionPool(rCookie);
+				-- END IF;
+				-- END IF;
+
+				SET OutputLocalEnvironment = InputLocalEnvironment;
+				-- Set Cookie from aton
+				SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+				SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+				SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/getinfo?infosetid=list&code=' || Environment.Variables.Search.Values.DocumentCode;
+				SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+				SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf ||OutputLocalEnvironment.Destination.HTTP.RequestURL;
+
+				PROPAGATE TO TERMINAL 'out';
+
+				RETURN FALSE;
+			END;
+
+			CREATE PROCEDURE CopyEntireMessage() BEGIN
+				SET OutputRoot = InputRoot;
+			END;
+
+			CREATE PROCEDURE CopyMessageHeaders() BEGIN
+				DECLARE I INTEGER 1;
+				DECLARE J INTEGER;
+				SET J = CARDINALITY(InputRoot.*[]);
+				WHILE I < J DO
+					SET OutputRoot.*[I] = InputRoot.*[I];
+					SET I = I + 1;
+				END WHILE;
+			END;
+
+		END MODULE;
+
+
+		CREATE FILTER MODULE APT_SearchFlow_Filter
+			CREATE FUNCTION Main() RETURNS BOOLEAN
+			BEGIN
+				IF Environment.Variables.Search.Values.FileID > '' THEN
+					RETURN TRUE;
+				ELSE
+					RETURN FALSE;
+				END IF;
+			END;
+
+		END MODULE;
+
+		CREATE COMPUTE MODULE APT_SearchFlow_ChangeStatus
+			CREATE FUNCTION Main() RETURNS BOOLEAN
+			BEGIN
+				-- CALL CopyMessageHeaders();
+				-- This noded changes the status after importing APT file
+
+				CALL CopyEntireMessage();
+				SET OutputRoot.Properties = InputRoot.Properties;
+				SET OutputLocalEnvironment = InputLocalEnvironment;
+
+				DECLARE rOM REFERENCE TO Environment.Variables.OutMessage.XMLNSC;
+				DECLARE rResponseData REFERENCE TO rOM.*:Envelope.*:Body.*:SearchResponse;
+				DECLARE cMessage CHAR;
+				DECLARE cDocID CHAR;
+
+
+				SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+				IF CONTAINS(cMessage, 'exception') THEN
+					SET rResponseData.*:SearchState = 'failure';
+					SET rResponseData.*:AtonErrorCode = InputRoot.XMLNSC.exception.code;
+					SET rResponseData.*:RequestURL = Environment.Variables.AllrequestedURLs;
+					-- REPLY TO HTTP Requester
+					SET OutputRoot = InputRoot;
+					SET OutputLocalEnvironment = InputLocalEnvironment;
+					SET OutputRoot.BLOB = NULL;
+					SET OutputRoot.HTTPInputHeader = Environment.Variables.OutMessage.HTTPInputHeader;
+					SET OutputRoot.HTTPRequestHeader = NULL;
+					SET OutputRoot.HTTPResponseHeader = NULL;
+					SET OutputRoot.XMLNSC = rOM;
+
+
+					PROPAGATE TO TERMINAL 'out1';
+				END IF;
+
+				SET cDocID = Environment.Variables.File.Import.ID;
+
+				SET OutputLocalEnvironment = InputLocalEnvironment;
+				-- Set Cookie from aton
+				SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+				SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+				--SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/common/CreateRelationship?typefrom=ITEM&codefrom=' || cCodeFrom || '&revfrom=0&typeto=DOC&idto=' || cIdTo;
+				SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/changeStatus?id=' || cDocID || '&status=ACCEPT_INDIVIDUAL';
+				SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+				PROPAGATE TO TERMINAL 'out';
+				RETURN FALSE;
+
+
+			END;
+
+			CREATE PROCEDURE CopyMessageHeaders() BEGIN
+				DECLARE I INTEGER 1;
+				DECLARE J INTEGER;
+				SET J = CARDINALITY(InputRoot.*[]);
+				WHILE I < J DO
+					SET OutputRoot.*[I] = InputRoot.*[I];
+					SET I = I + 1;
+				END WHILE;
+			END;
+
+			CREATE PROCEDURE CopyEntireMessage() BEGIN
+				SET OutputRoot = InputRoot;
+			END;
+		END MODULE;
+
+
+
+
+
+		CREATE COMPUTE MODULE APT_SearchFlow_ReserveNewVersion
+			CREATE FUNCTION Main() RETURNS BOOLEAN
+			BEGIN
+				-- CALL CopyMessageHeaders();
+				-- CALL CopyEntireMessage();
+				DECLARE cMessage CHAR;
+
+				DECLARE cDocID CHAR;
+
+				SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+				IF CONTAINS(cMessage, 'exception') THEN
+					CALL CopyEntireMessage();
+					PROPAGATE TO TERMINAL 'out1';
+					RETURN FALSE;
+				ELSE
+					IF InputRoot.XMLNSC.exception.message IS NOT NULL THEN
+						CALL CopyEntireMessage();
+						PROPAGATE TO TERMINAL 'out1';
+						RETURN FALSE;
+					END IF;
+				END IF;
+
+				IF Environment.Variables.Search.Values.FileID > '' THEN
+					SET cDocID = Environment.Variables.Search.Values.FileID; --ID
+					SET Environment.Variables.Search.Values.Revision = FIELDVALUE(InputRoot.XMLNSC.objectarray.doc.doc_rev);
+				ELSEIF FIELDVALUE(InputRoot.XMLNSC.objectarray.doc.doc_id) > '' THEN
+					SET cDocID = FIELDVALUE(InputRoot.XMLNSC.objectarray.doc.doc_id);
+					SET Environment.Variables.Search.Values.FileID = cDocID;
+					SET Environment.Variables.Search.Values.Revision = FIELDVALUE(InputRoot.XMLNSC.objectarray.doc.doc_rev);
+				END IF;
+
+				SET OutputLocalEnvironment = InputLocalEnvironment;
+				-- Set Cookie from aton
+				SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+				SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+
+				SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/reserve?id=' || cDocID ;
+				SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+				SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf ||OutputLocalEnvironment.Destination.HTTP.RequestURL;
+
+				PROPAGATE TO TERMINAL 'out';
+				RETURN FALSE;
+
+			END;
+
+			CREATE PROCEDURE CopyMessageHeaders() BEGIN
+				DECLARE I INTEGER 1;
+				DECLARE J INTEGER;
+				SET J = CARDINALITY(InputRoot.*[]);
+				WHILE I < J DO
+					SET OutputRoot.*[I] = InputRoot.*[I];
+					SET I = I + 1;
+				END WHILE;
+			END;
+
+			CREATE PROCEDURE CopyEntireMessage() BEGIN
+				SET OutputRoot = InputRoot;
+			END;
+		END MODULE;
+
+
+		CREATE COMPUTE MODULE APT_SearchFlow_GetRevision
+			CREATE FUNCTION Main() RETURNS BOOLEAN
+			BEGIN
+
+				DECLARE cID CHAR;
+				DECLARE cMessage CHAR;
+
+				IF InputRoot.XMLNSC.exception.message IS NOT NULL THEN
+					CALL CopyEntireMessage();
+					PROPAGATE TO TERMINAL 'out1';
+					RETURN FALSE;
+				END IF;
+				SET cID = Environment.Variables.Search.Values.FileID;
+
+				SET OutputLocalEnvironment = InputLocalEnvironment;
+				-- Set Cookie from aton
+				SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+				SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+				SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/getinfo?infosetid=full&id='|| cID ;
+				SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+				SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf ||OutputLocalEnvironment.Destination.HTTP.RequestURL;
+
+				PROPAGATE TO TERMINAL 'out';
+				RETURN FALSE;
+			END;
+
+			CREATE PROCEDURE CopyMessageHeaders() BEGIN
+				DECLARE I INTEGER 1;
+				DECLARE J INTEGER;
+				SET J = CARDINALITY(InputRoot.*[]);
+				WHILE I < J DO
+					SET OutputRoot.*[I] = InputRoot.*[I];
+					SET I = I + 1;
+				END WHILE;
+			END;
+
+			CREATE PROCEDURE CopyEntireMessage() BEGIN
+				SET OutputRoot = InputRoot;
+			END;
+		END MODULE;
+
+		CREATE COMPUTE MODULE APT_SearchFlow_CreateFailureResponse
+			CREATE FUNCTION Main() RETURNS BOOLEAN
+			BEGIN
+				CALL CopyEntireMessage();
+				SET OutputLocalEnvironment = InputLocalEnvironment;
+
+
+				DECLARE bRequest Boolean TRUE;
+				DECLARE bDoc Boolean TRUE;
+				DECLARE rOM REFERENCE TO Environment.Variables.OutMessage.XMLNSC;
+
+
+				DECLARE rResponseData REFERENCE TO rOM.*:Envelope.*:Body.*:SearchResponse;
+				DECLARE rE REFERENCE TO InputExceptionList;
+				DECLARE messageNumber INT;
+				DECLARE messageText CHAR '';
+				IF LASTMOVE(rE) THEN
+					CALL getLastExceptionDetail(rE, messageNumber, messageText);
+					SET rResponseData.*:SearchState = 'failure';
+					SET rResponseData.*:AtonErrorCode = 'Broker error code: ' || CAST(messageNumber AS CHAR);
+					SET rResponseData.*:AtonErrorMessage = 'Broker error message: ' || messageText;
+					SET rResponseData.*:RequestURL = Environment.Variables.AllrequestedURLs;
+
+					SET rE = NULL;
+				END IF;
+				-- REPLY TO HTTP Requester
+				SET OutputRoot = InputRoot;
+
+				SET OutputRoot.BLOB = NULL;
+				SET OutputRoot.HTTPInputHeader = Environment.Variables.OutMessage.HTTPInputHeader;
+				SET OutputRoot.HTTPRequestHeader = NULL;
+				SET OutputRoot.HTTPResponseHeader = NULL;
+				SET OutputRoot.XMLNSC = rOM;
+
+
+				RETURN TRUE;
+			END;
+			CREATE PROCEDURE getLastExceptionDetail(IN InputTree reference,OUT messageNumber integer,OUT messageText char)
+			/****************************************************************************
+			* A procedure that will get the details of the last exception from a message
+			* IN InputTree: The incoming exception list
+			* IN messageNumber: The last message number.
+			* IN messageText: The last message text.
+			*****************************************************************************/
+			BEGIN
+			-- Create a reference to the first child of the exception list
+			declare ptrException reference to InputTree.*[1];
+			-- keep looping while the moves to the child of exception list work
+			WHILE lastmove(ptrException) DO
+				-- store the current values for the error number and text
+				IF ptrException.Number is not null THEN
+					SET messageNumber = ptrException.Number;
+					SET messageText = ptrException.Text;
+				END IF;
+				-- now move to the last child which should be the next exceptionlist
+				move ptrException lastchild;
+			END WHILE;
+		END;
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
+
+
+
+	CREATE COMPUTE MODULE APT_SearchFlow_UpdateSerialNumber
+		CREATE FUNCTION Main() RETURNS BOOLEAN
+		BEGIN
+			-- CALL CopyMessageHeaders();
+			-- CALL CopyEntireMessage();
+			DECLARE cMessage CHAR;
+			DECLARE cDesc5 CHAR;
+			DECLARE cDocID CHAR;
+
+			--SET cMessage = CAST(InputRoot.BLOB.BLOB AS CHARACTER CCSID 1208);
+			--IF CONTAINS(cMessage, 'exception') THEN
+			--	CALL CopyEntireMessage();
+			--	PROPAGATE TO TERMINAL 'out1';
+			--	RETURN FALSE;
+			--ELSE
+				IF InputRoot.XMLNSC.exception.message IS NOT NULL THEN
+					CALL CopyEntireMessage();
+					PROPAGATE TO TERMINAL 'out1';
+					RETURN FALSE;
+				END IF;
+			--END IF;
+
+			--IF Environment.Variables.Search.Values.FileID > '' THEN
+			--	SET cDocID = Environment.Variables.Search.Values.FileID; --ID
+			IF FIELDVALUE(InputRoot.XMLNSC.objectarray.doc.doc_id) > '' THEN
+				SET cDocID = FIELDVALUE(InputRoot.XMLNSC.objectarray.doc.doc_id);
+				SET Environment.Variables.Search.Values.FileID = cDocID;
+			ELSE
+				
+			END IF;
+			
+			SET cDesc5 = COALESCE(Environment.Variables.Search.Values.Update_Desc5, '');
+			
+			SET OutputLocalEnvironment = InputLocalEnvironment;
+			-- Set Cookie from aton
+			SET OutputRoot.HTTPRequestHeader."Cookie" = Environment.Variables.atonSession;
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+
+			SET OutputLocalEnvironment.Destination.HTTP.RequestURL = 'http://' || Environment.Variables.AtonHostName || '/portalapi/portalapi/document/save?id=' || cDocID || '&desc5=' || cDesc5; -- || '&seq3=108606&owner=SLEQELPL&lang=ENG';
+			SET Environment.Variables.requestedURL = OutputLocalEnvironment.Destination.HTTP.RequestURL;
+			SET Environment.Variables.AllrequestedURLs = Environment.Variables.AllrequestedURLs || cCrLf ||OutputLocalEnvironment.Destination.HTTP.RequestURL;
+
+			PROPAGATE TO TERMINAL 'out';
+			RETURN FALSE;
+		END;
+
+		CREATE PROCEDURE CopyMessageHeaders() BEGIN
+			DECLARE I INTEGER 1;
+			DECLARE J INTEGER;
+			SET J = CARDINALITY(InputRoot.*[]);
+			WHILE I < J DO
+				SET OutputRoot.*[I] = InputRoot.*[I];
+				SET I = I + 1;
+			END WHILE;
+		END;
+
+		CREATE PROCEDURE CopyEntireMessage() BEGIN
+			SET OutputRoot = InputRoot;
+		END;
+	END MODULE;
